@@ -116,11 +116,14 @@ class SpeakerAttributionModel(PreTrainedModel):
         assert encoded_quotes.shape == (b, 2, h)
         encoded_quotes = torch.reshape(encoded_quotes, (b, 2 * h))
 
+        # NOTE: we keep one representation per speaker mask, in case
+        # the implementation changes later. This is not optimal: we
+        # could have a single mask for all speakers.
         stacked_mask = torch.stack([speaker_repr_mask] * h, dim=-1)
         assert stacked_mask.shape == (b, s, q, h)
         stacked_enc = torch.stack([encoded] * s, dim=1)
         assert stacked_enc.shape == (b, s, q, h)
-        speaker_repr = torch.mean(
+        speaker_repr = torch.sum(
             (stacked_mask * stacked_enc).reshape(b, s * q, h), dim=1
         )
         assert speaker_repr.shape == (b, h)
