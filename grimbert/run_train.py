@@ -65,7 +65,7 @@ def main(
     elif corpus_name == "PDNC":
         assert not corpus_path is None
         dataset = SpeakerAttributionDataset.from_PDNC(
-            corpus_path, quote_ctx_len, sa_model_config["speaker_repr_nb"], tokenizer
+            corpus_path, quote_ctx_len, speaker_repr_nb, tokenizer
         )
         train_dataset, eval_dataset = dataset.splitted(0.8)
     else:
