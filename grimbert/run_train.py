@@ -1,4 +1,5 @@
 import os
+from typing import Literal, Optional
 from sacred.experiment import Experiment
 from sacred.run import Run
 from transformers import BertTokenizerFast
@@ -22,10 +23,15 @@ def config():
 
     bert_encoder: str = "bert-base-cased"
 
+    # which corpus to use. Either "muzny" or "PDNC"
+    corpus_name: str = "muzny"
+    corpus_path = None
+
     # see :class:`grimbert.model.SpeakerAttributionModelConfig`
     sa_model_config: dict = {"segment_len": 128}
 
     quote_ctx_len: int = 256
+    speaker_repr_nb: int = 4
 
 
 @ex.main
@@ -33,26 +39,37 @@ def main(
     _run: Run,
     hg_training_kwargs: dict,
     bert_encoder: str,
+    corpus_name: Literal["muzny", "PDNC"],
+    corpus_path: Optional[str],
     sa_model_config: dict,
     quote_ctx_len: int,
+    speaker_repr_nb: int,
 ):
     tokenizer = BertTokenizerFast.from_pretrained("bert-base-cased")
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    train_dataset = SpeakerAttributionDataset.from_muzny_files(
-        [f"{ROOT_DIR}/corpus/emma.xml", f"{ROOT_DIR}/corpus/pp.xml"],
-        quote_ctx_len,
-        sa_model_config["speaker_repr_nb"],
-        tokenizer,
-    )
-
-    eval_dataset = SpeakerAttributionDataset.from_muzny_files(
-        [f"{ROOT_DIR}/corpus/steppe.xml"],
-        quote_ctx_len,
-        sa_model_config["speaker_repr_nb"],
-        tokenizer,
-    )
+    if corpus_name == "muzny":
+        train_dataset = SpeakerAttributionDataset.from_muzny_files(
+            [f"{ROOT_DIR}/corpus/emma.xml", f"{ROOT_DIR}/corpus/pp.xml"],
+            quote_ctx_len,
+            speaker_repr_nb,
+            tokenizer,
+        )
+        eval_dataset = SpeakerAttributionDataset.from_muzny_files(
+            [f"{ROOT_DIR}/corpus/steppe.xml"],
+            quote_ctx_len,
+            speaker_repr_nb,
+            tokenizer,
+        )
+    elif corpus_name == "PDNC":
+        assert not corpus_path is None
+        dataset = SpeakerAttributionDataset.from_PDNC(
+            corpus_path, quote_ctx_len, sa_model_config["speaker_repr_nb"], tokenizer
+        )
+        train_dataset, eval_dataset = dataset.splitted(0.8)
+    else:
+        raise ValueError(f"unknown corpus: {corpus_name}")
 
     weights = train_dataset.weights().to(device)
     model = SpeakerAttributionModel.from_pretrained(
