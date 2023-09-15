@@ -23,7 +23,7 @@ def config():
     bert_encoder: str = "bert-base-cased"
 
     # see :class:`grimbert.model.SpeakerAttributionModelConfig`
-    sa_model_config: dict = {"speaker_repr_nb": 4, "segment_len": 128}
+    sa_model_config: dict = {"segment_len": 128}
 
     quote_ctx_len: int = 256
 

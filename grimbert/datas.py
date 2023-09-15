@@ -1,14 +1,19 @@
 from __future__ import annotations
-from typing import Any, List, Literal, Optional, Set, Tuple, Dict
+from typing import Any, List, Literal, Optional, Set, Tuple, Dict, Union
+import glob
+from pathlib import Path
 from xml.etree import ElementTree as ET
 from dataclasses import dataclass
+import pandas as pd
 import torch
 from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import Dataset
 from transformers import BertTokenizerFast
+from tqdm import tqdm
 from sacremoses import MosesTokenizer
 from transformers.tokenization_utils_base import BatchEncoding
 from more_itertools import flatten
+from grimbert.utils import find_pattern
 
 
 class DataCollatorForSpeakerAttribution:
@@ -119,6 +124,24 @@ class SpeakerAttributionDataset(Dataset):
     def __len__(self):
         return len(self.examples)
 
+    def splitted(
+        self, ratio: float
+    ) -> Tuple[SpeakerAttributionDataset, SpeakerAttributionDataset]:
+        return (
+            SpeakerAttributionDataset(
+                self.documents[: int(len(self.documents) * ratio)],
+                self.quote_ctx_len,
+                self.speaker_repr_nb,
+                self.tokenizer,
+            ),
+            SpeakerAttributionDataset(
+                self.documents[int(len(self.documents) * ratio) :],
+                self.quote_ctx_len,
+                self.speaker_repr_nb,
+                self.tokenizer,
+            ),
+        )
+
     def weights(self) -> torch.Tensor:
         """
         :return: a tensor of shape (2)
@@ -128,6 +151,110 @@ class SpeakerAttributionDataset(Dataset):
         neg_nb = len(labels) - pos_nb
         max_nb = max(pos_nb, neg_nb)
         return torch.tensor([max_nb / neg_nb, max_nb / pos_nb])
+
+    @staticmethod
+    def from_PDNC(
+        root: Union[str, Path],
+        quote_ctx_len: int,
+        speaker_repr_nb: int,
+        tokenizer: BertTokenizerFast,
+    ) -> SpeakerAttributionDataset:
+        if isinstance(root, str):
+            root = Path(root)
+
+        documents = [
+            SpeakerAttributionDataset._load_PDNC_book(Path(path))
+            for path in tqdm(sorted(glob.glob(f"{root}/data/*")))
+        ]
+        return SpeakerAttributionDataset(
+            documents, quote_ctx_len, speaker_repr_nb, tokenizer
+        )
+
+    @staticmethod
+    def _load_PDNC_book(root: Path) -> SpeakerAttributionDocument:
+
+        quotation_info = pd.read_csv(root / "quotation_info.csv")
+
+        with open(root / "novel_text.txt") as f:
+            text = f.read()
+
+        m_tokenizer = MosesTokenizer()
+
+        # Extract tokens and quotes
+        # -------------------------
+        # In the dataframe, each line can contain "subquotes". We do not
+        # support that concept, so we map each subquote to a quote by
+        # 'flattening' the structure of the dataframe.
+        quote_texts = []
+        quote_spans = []
+        quote_speakers = []
+        for _, qline in quotation_info.iterrows():
+            spans = eval(qline["quoteByteSpans"])
+            for span in spans:
+                # we take into account the quotation marks, something that is
+                # not done in the original dataset
+                quote_spans.append((span[0] - 1, span[1] + 1))
+                quote_speakers.append(qline["speaker"])
+                quote_text = text[span[0] - 1 : span[1] + 1]
+                quote_texts.append(quote_text)
+
+        # Init doc_tokens with the tokens from the start of the text to the first quote
+        doc_tokens = m_tokenizer.tokenize(text[: quote_spans[0][0]], escape=False)
+        quotes = []
+
+        # Parse the flattened structure into SpeakerAttributionQuote, keeping
+        # track of token indices
+        for i, (quote_text, span, speaker) in enumerate(
+            zip(quote_texts, quote_spans, quote_speakers)
+        ):
+            quote_tokens = m_tokenizer.tokenize(quote_text, escape=False)
+            quotes.append(
+                SpeakerAttributionQuote(
+                    quote_tokens,
+                    len(doc_tokens),
+                    len(doc_tokens) + len(quote_tokens),
+                    speaker,
+                )
+            )
+            doc_tokens += quote_tokens
+
+            # Add tokens from the text in between quotes (or the from the text
+            # from the last quote to the end of the text)
+            if i + 1 < len(quotation_info):
+                next_span = quote_spans[i + 1]
+                in_between_tokens = m_tokenizer.tokenize(
+                    text[span[1] : next_span[0]], escape=False
+                )
+                doc_tokens += in_between_tokens
+            else:
+                end_tokens = m_tokenizer.tokenize(
+                    text[quote_spans[-1][1] :], escape=False
+                )
+                doc_tokens += end_tokens
+
+        # Extract mentions
+        # ----------------
+        characters_info = pd.read_csv(root / "character_info.csv")
+
+        # { alias => normalized name }
+        alias_to_speaker = {}
+        for _, row in characters_info.iterrows():
+            alias_to_speaker[row["Main Name"]] = row["Main Name"]
+            for alias in eval(row["Aliases"]):
+                alias_to_speaker[alias] = row["Main Name"]
+
+        # extract mentions from doc_tokens
+        mentions = []
+        for alias, speaker in alias_to_speaker.items():
+            alias_tokens = m_tokenizer.tokenize(alias, escape=False)
+            coords_lst = find_pattern(doc_tokens, alias_tokens)
+            for start, end in coords_lst:
+                mentions.append(
+                    SpeakerAttributionMention(alias_tokens, start, end, speaker)
+                )
+
+        # we're done!
+        return SpeakerAttributionDocument(doc_tokens, quotes, mentions)
 
     @staticmethod
     def from_muzny_files(
