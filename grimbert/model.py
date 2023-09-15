@@ -10,7 +10,6 @@ from grimbert.utils import batch_index_select
 class SpeakerAttributionModelConfig(BertConfig):
     def __init__(self, speaker_repr_nb: int = 8, segment_len=128, **kwargs) -> None:
         super().__init__(**kwargs)
-        self.speaker_repr_nb = speaker_repr_nb
         self.segment_len = segment_len
 
 
@@ -102,11 +101,10 @@ class SpeakerAttributionModel(PreTrainedModel):
         :param attention_mask: (b, q)
         :param token_type_ids: (b, q)
         :param quote_span_coords: (b, 2)
-        :param speaker_repr_mask: (b, s, q)
+        :param speaker_repr_mask: (b, q)
         :param labels: (b, 1)
         """
         b, q = input_ids.shape
-        s = self.config.speaker_repr_nb
         h = self.config.hidden_size
 
         encoded = self.bert_encode(input_ids, attention_mask, token_type_ids)
@@ -116,16 +114,10 @@ class SpeakerAttributionModel(PreTrainedModel):
         assert encoded_quotes.shape == (b, 2, h)
         encoded_quotes = torch.reshape(encoded_quotes, (b, 2 * h))
 
-        # NOTE: we keep one representation per speaker mask, in case
-        # the implementation changes later. This is not optimal: we
-        # could have a single mask for all speakers.
-        stacked_mask = torch.stack([speaker_repr_mask] * h, dim=-1)
-        assert stacked_mask.shape == (b, s, q, h)
-        stacked_enc = torch.stack([encoded] * s, dim=1)
-        assert stacked_enc.shape == (b, s, q, h)
-        speaker_repr = torch.sum(
-            (stacked_mask * stacked_enc).reshape(b, s * q, h), dim=1
-        )
+        speaker_repr_nb = torch.sum(speaker_repr_mask, dim=1).reshape(b, 1)
+        speaker_repr_nb[speaker_repr_nb == 0] = 1
+        speaker_repr_mask = torch.stack([speaker_repr_mask] * h, dim=-1)
+        speaker_repr = torch.sum(encoded * speaker_repr_mask, dim=1) / speaker_repr_nb
         assert speaker_repr.shape == (b, h)
 
         scores = self.linear(torch.cat((encoded_quotes, speaker_repr), 1))

@@ -28,24 +28,17 @@ class DataCollatorForSpeakerAttribution:
         batch = {}
 
         # pad features with variable-length sequence
-        padding_value = self.tok_padding_value()
-        for key in ("input_ids", "attention_mask", "token_type_ids"):
+        for key, padding_value in (
+            ("input_ids", self.tok_padding_value()),
+            ("attention_mask", 0),
+            ("token_type_ids", 0),
+            ("speaker_repr_mask", 0),
+        ):
             batch[key] = pad_sequence(
                 [f[key] for f in features],
                 batch_first=True,
                 padding_value=padding_value,
             )
-
-        # pad 'speaker_repr_mask'. Originally, each tensor is of shape
-        # (s, l), with 'l' varying. We stack them into a tensor of
-        # shape (b, s, q), with q being the length of the longest
-        # sequence. We have to transpose the first and second
-        # dimension to respect the dimension order expected by
-        # pad_sequence.
-        speaker_repr_mask = [f["speaker_repr_mask"].transpose(0, 1) for f in features]
-        speaker_repr_mask = pad_sequence(speaker_repr_mask, batch_first=True)
-        batch["speaker_repr_mask"] = speaker_repr_mask.transpose(1, 2)
-        assert batch["speaker_repr_mask"].shape == (b, s, q)
 
         # stack other tensor features
         for key in ("quote_span_coords", "labels"):
@@ -293,18 +286,14 @@ class SpeakerAttributionDataset(Dataset):
             speaker_mentions, key=lambda m: SpeakerAttributionDocument.dist(quote, m)
         )[: self.speaker_repr_nb]
 
-        speaker_repr_mask = torch.zeros(
-            (self.speaker_repr_nb, batch["input_ids"].shape[0])
-        )
-        speaker_repr_i = 0
+        speaker_repr_mask = torch.zeros(batch["input_ids"].shape[0])
 
         for mention in closest_mentions:
             mention_start = pos_to_batchpos(mention.start, "start", clip=False)
             mention_end = pos_to_batchpos(mention.end - 1, "end", clip=False)
             if not mention_start is None and not mention_end is None:
-                speaker_repr_mask[speaker_repr_i][mention_start] = 1
-                speaker_repr_mask[speaker_repr_i][mention_end] = 1
-                speaker_repr_i += 1
+                speaker_repr_mask[mention_start] = 1
+                speaker_repr_mask[mention_end] = 1
 
         batch["speaker_repr_mask"] = speaker_repr_mask
 

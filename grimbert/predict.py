@@ -62,13 +62,4 @@ def predict_speaker(
                     preds[doc_i][quote_i].predicted_speaker = batch["speaker"][i]
                     preds[doc_i][quote_i].score = score
 
-                # TODO: debug
-                print(
-                    (
-                        dataset.documents[doc_i].quotes[quote_i].speaker,
-                        batch["speaker"][i],
-                        score,
-                    )
-                )
-
     return preds

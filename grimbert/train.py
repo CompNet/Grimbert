@@ -18,6 +18,13 @@ class SacredTrainer(Trainer):
             self._run.log_scalar(k, v)
         return metrics
 
+    def log(self, logs: Dict[str, float]):
+        super().log(logs)
+        if "loss" in logs:
+            self._run.log_scalar("loss", logs["loss"])
+        if "learning_rate" in logs:
+            self._run.log_scalar("learning_rate", logs["learning_rate"])
+
 
 def _train_compute_metrics(eval_prediction: EvalPrediction) -> dict:
     # label_ids   (b, 1)
