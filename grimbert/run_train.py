@@ -83,9 +83,11 @@ def main(
 
     eval_batch_size = hg_training_kwargs.get("per_device_eval_batch_size", 1)
     preds = predict_speaker(eval_dataset, model, tokenizer, eval_batch_size, "auto")
-    metrics = score_preds(eval_dataset, preds)
+    accuracy = score_preds(eval_dataset, preds)
 
-    print(f"metrics: {metrics}")
+    print(f"{accuracy=}")
+
+    _run.log_scalar("accuracy", accuracy)
 
 
 if __name__ == "__main__":
