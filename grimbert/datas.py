@@ -72,28 +72,65 @@ class SpeakerAttributionMention:
     speaker: str
 
 
-@dataclass
 class SpeakerAttributionDocument:
-    tokens: List[str]
-    quotes: List[SpeakerAttributionQuote]
-    mentions: List[SpeakerAttributionMention]
+    def __init__(
+        self,
+        tokens: List[str],
+        quotes: List[SpeakerAttributionQuote],
+        mentions: List[SpeakerAttributionMention],
+    ):
+        self.tokens = tokens
+        self.quotes = sorted(quotes, key=lambda q: q.start)
+        self.mentions = sorted(mentions, key=lambda m: m.start + (m.end - m.start) / 2)
 
     @staticmethod
     def dist(quote: SpeakerAttributionQuote, mention: SpeakerAttributionMention) -> int:
-        return int(
-            abs((quote.start + quote.end) / 2 - (mention.start + mention.end) / 2)
-        )
+        if mention.start < quote.start:
+            return quote.start - mention.start
+        if mention.end > quote.end:
+            return mention.end - quote.end
+        return 0
 
     def speakers(self) -> Set[str]:
         return set(
             [q.speaker for q in self.quotes] + [m.speaker for m in self.mentions]
         )
 
-    def examples(self) -> List[Tuple[SpeakerAttributionQuote, str, bool]]:
+    @staticmethod
+    def mentions_in_range(
+        quote: SpeakerAttributionQuote,
+        mentions: List[SpeakerAttributionMention],
+        quote_ctx_len: int,
+    ) -> List[SpeakerAttributionMention]:
+        """
+        :param mentions: *sorted* list of mentions
+        """
+        outer_ctx_len = (quote_ctx_len - (quote.end - quote.start)) // 2
+
+        in_range_mentions = []
+        for mention in mentions:
+            if SpeakerAttributionDocument.dist(quote, mention) <= outer_ctx_len:
+                in_range_mentions.append(mention)
+            # since mentions are sorted left-to-right, we can early
+            # return here: the distance is greater than outer_ctx_len,
+            # and the next mentions will have greater distances
+            elif mention.start > quote.start:
+                break
+
+        return in_range_mentions
+
+    def examples(
+        self, quote_ctx_len: int
+    ) -> List[Tuple[SpeakerAttributionQuote, str, bool]]:
         exs = []
-        for speaker in sorted(self.speakers()):
+        for speaker in self.speakers():
+            speaker_mentions = [m for m in self.mentions if m.speaker == speaker]
             for quote in self.quotes:
-                exs.append((quote, speaker, quote.speaker == speaker))
+                mentions_in_range = self.mentions_in_range(
+                    quote, speaker_mentions, quote_ctx_len
+                )
+                if len(mentions_in_range) > 0:
+                    exs.append((quote, speaker, quote.speaker == speaker))
         return exs
 
 
@@ -104,41 +141,51 @@ class SpeakerAttributionDataset(Dataset):
         quote_ctx_len: int,
         speaker_repr_nb: int,
         tokenizer: BertTokenizerFast,
+        _examples: Optional[list] = None,
     ):
+        """
+        :param quote_ctx_len: total size of the quote context
+            (including the quote), in tokens (not wordpieces)
+        """
         self.documents = documents
-        self.examples = list(
-            flatten(
-                [
+
+        if _examples:
+            self.examples = _examples
+        else:
+            self.examples = []
+            for doc in tqdm(self.documents, desc="generating examples"):
+                self.examples.append(
                     [
                         (quote, doc, speaker, label)
-                        for quote, speaker, label in doc.examples()
+                        for quote, speaker, label in doc.examples(quote_ctx_len)
                     ]
-                    for doc in documents
-                ]
-            )
-        )
+                )
+
         self.quote_ctx_len = quote_ctx_len
         self.speaker_repr_nb = speaker_repr_nb
         self.tokenizer = tokenizer
 
     def __len__(self):
-        return len(self.examples)
+        return len(list(flatten(self.examples)))
 
     def splitted(
         self, ratio: float
     ) -> Tuple[SpeakerAttributionDataset, SpeakerAttributionDataset]:
+        limit = int(len(self.documents) * ratio)
         return (
             SpeakerAttributionDataset(
-                self.documents[: int(len(self.documents) * ratio)],
+                self.documents[:limit],
                 self.quote_ctx_len,
                 self.speaker_repr_nb,
                 self.tokenizer,
+                _examples=self.examples[:limit],
             ),
             SpeakerAttributionDataset(
-                self.documents[int(len(self.documents) * ratio) :],
+                self.documents[limit:],
                 self.quote_ctx_len,
                 self.speaker_repr_nb,
                 self.tokenizer,
+                _examples=self.examples[limit:],
             ),
         )
 
@@ -146,7 +193,7 @@ class SpeakerAttributionDataset(Dataset):
         """
         :return: a tensor of shape (2)
         """
-        labels = [label for _, _, _, label in self.examples]
+        labels = [label for _, _, _, label in flatten(self.examples)]
         pos_nb = sum(labels)
         neg_nb = len(labels) - pos_nb
         max_nb = max(pos_nb, neg_nb)
@@ -164,7 +211,9 @@ class SpeakerAttributionDataset(Dataset):
 
         documents = [
             SpeakerAttributionDataset._load_PDNC_book(Path(path))
-            for path in tqdm(sorted(glob.glob(f"{root}/data/*")))
+            for path in tqdm(
+                sorted(glob.glob(f"{root}/data/*")), desc="loading documents"
+            )
         ]
         return SpeakerAttributionDataset(
             documents, quote_ctx_len, speaker_repr_nb, tokenizer
@@ -247,7 +296,7 @@ class SpeakerAttributionDataset(Dataset):
         mentions = []
         for alias, speaker in alias_to_speaker.items():
             alias_tokens = m_tokenizer.tokenize(alias, escape=False)
-            coords_lst = find_pattern(doc_tokens, alias_tokens)
+            coords_lst = find_pattern(doc_tokens, alias_tokens)  # note: expensive
             for start, end in coords_lst:
                 mentions.append(
                     SpeakerAttributionMention(alias_tokens, start, end, speaker)
@@ -354,7 +403,9 @@ class SpeakerAttributionDataset(Dataset):
 
         for c_node in chapter_nodes:
             document = SpeakerAttributionDocument(
-                m_tokenizer.tokenize("".join(c_node.itertext()), escape=False), [], []
+                m_tokenizer.tokenize("".join(c_node.itertext()), escape=False),
+                [],
+                [],
             )
             _parse_xml_(c_node, 0, document, alias_to_speaker)
             documents.append(document)
@@ -363,7 +414,7 @@ class SpeakerAttributionDataset(Dataset):
 
     def __getitem__(self, index: int) -> BatchEncoding:
 
-        quote, document, speaker, label = self.examples[index]
+        quote, document, speaker, label = list(flatten(self.examples))[index]
 
         # The whole context used for speaker attribution is of the
         # form [lcontext, quote, rcontext]. The size of lcontext and

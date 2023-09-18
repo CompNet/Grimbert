@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import List, Literal, Sequence
+from typing import List, Literal, Optional
 import torch
 from torch.utils.data import DataLoader
 from transformers import BertTokenizerFast
@@ -10,7 +10,7 @@ from grimbert.model import SpeakerAttributionModel
 
 @dataclass
 class SpeakerPrediction:
-    predicted_speaker: str
+    predicted_speaker: Optional[str]
     score: float
 
 
@@ -34,7 +34,7 @@ def predict_speaker(
     dataloader = DataLoader(dataset, batch_size, collate_fn=data_collator)
 
     preds = [
-        [SpeakerPrediction("", -1) for _ in document.quotes]
+        [SpeakerPrediction(None, 0.0) for _ in document.quotes]
         for document in dataset.documents
     ]
 

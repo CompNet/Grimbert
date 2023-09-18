@@ -64,7 +64,7 @@ def train_speaker_attribution(
         args=training_args,
         train_dataset=train_dataset,
         eval_dataset=eval_dataset,
-        data_collator=DataCollatorForSpeakerAttribution(),
+        data_collator=DataCollatorForSpeakerAttribution(train_dataset.tokenizer),
         compute_metrics=_train_compute_metrics,
         **trainer_kwargs
     )
