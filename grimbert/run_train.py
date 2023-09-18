@@ -7,6 +7,8 @@ import torch
 from grimbert.model import SpeakerAttributionModel
 from grimbert.datas import SpeakerAttributionDataset
 from grimbert.train import train_speaker_attribution
+from grimbert.predict import predict_speaker
+from grimbert.score import score_preds
 
 
 ROOT_DIR = os.path.dirname(os.path.abspath(f"{__file__}/.."))
@@ -78,6 +80,12 @@ def main(
     model = train_speaker_attribution(
         model, train_dataset, eval_dataset, _run, **hg_training_kwargs
     )
+
+    eval_batch_size = hg_training_kwargs.get("per_device_eval_batch_size", 1)
+    preds = predict_speaker(eval_dataset, model, tokenizer, eval_batch_size, "auto")
+    metrics = score_preds(eval_dataset, preds)
+
+    print(f"metrics: {metrics}")
 
 
 if __name__ == "__main__":
