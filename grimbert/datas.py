@@ -311,12 +311,20 @@ class SpeakerAttributionDataset(Dataset):
         quote_ctx_len: int,
         speaker_repr_nb: int,
         tokenizer: BertTokenizerFast,
+        use_additional_gold_mentions: bool = True,
     ) -> SpeakerAttributionDataset:
+        """
+        :param use_additional_gold_mentions: if ``True``, use mentions
+            attributed to a speaker in addition to mentions obtained
+            with aliases.
+        """
         return SpeakerAttributionDataset(
             list(
                 flatten(
                     [
-                        SpeakerAttributionDataset._load_muzny_xml_file(path)
+                        SpeakerAttributionDataset._load_muzny_xml_file(
+                            path, use_additional_gold_mentions
+                        )
                         for path in paths
                     ]
                 )
@@ -327,7 +335,9 @@ class SpeakerAttributionDataset(Dataset):
         )
 
     @staticmethod
-    def _load_muzny_xml_file(path: str) -> List[SpeakerAttributionDocument]:
+    def _load_muzny_xml_file(
+        path: str, use_additional_gold_mentions: bool
+    ) -> List[SpeakerAttributionDocument]:
         m_tokenizer = MosesTokenizer()
 
         root = ET.parse(path)
@@ -365,6 +375,7 @@ class SpeakerAttributionDataset(Dataset):
                 child_i += len(child.attrib["tokens"]) + len(tail_tokens)
 
             tokens = node.attrib["tokens"]
+
             if node.tag == "quote" and not node.attrib["speaker"] in (
                 "NOTANUTTERANCE",
                 "UNSURE",
@@ -377,15 +388,27 @@ class SpeakerAttributionDataset(Dataset):
                         alias_to_speaker[node.attrib["speaker"]],
                     )
                 )
+
             elif node.tag == "mention":
-                document.mentions.append(
-                    SpeakerAttributionMention(
-                        tokens,
-                        current_i,
-                        current_i + len(tokens),
-                        alias_to_speaker[node.get("speaker", node.text)],
+
+                # Some mentions have a 'speaker' annotation indicating
+                # the refered characters
+                # example : <mention speaker="Mr_Henry_Woodhouse">papa</mention>
+                # we use these only if use_additional_gold_mentions is passed
+                if use_additional_gold_mentions:
+                    speaker = alias_to_speaker[node.get("speaker", node.text)]
+                else:
+                    speaker = alias_to_speaker.get(node.text)
+
+                if not speaker is None:
+                    document.mentions.append(
+                        SpeakerAttributionMention(
+                            tokens,
+                            current_i,
+                            current_i + len(tokens),
+                            alias_to_speaker[node.get("speaker", node.text)],
+                        )
                     )
-                )
 
             return node.attrib["tokens"]
 
