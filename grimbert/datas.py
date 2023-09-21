@@ -426,7 +426,7 @@ class SpeakerAttributionDataset(Dataset):
         batch = self.tokenizer(
             document.tokens[quote_ctx_start:quote_ctx_end],
             is_split_into_words=True,
-            truncation=True,
+            truncation=False,
             return_tensors="pt",
         )
 
