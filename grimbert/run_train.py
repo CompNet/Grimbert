@@ -57,12 +57,14 @@ def main(
             quote_ctx_len,
             speaker_repr_nb,
             tokenizer,
+            use_additional_gold_mentions=False,
         )
         eval_dataset = SpeakerAttributionDataset.from_muzny_files(
             [f"{ROOT_DIR}/corpus/steppe.xml"],
             quote_ctx_len,
             speaker_repr_nb,
             tokenizer,
+            use_additional_gold_mentions=False,
         )
     elif corpus_name == "PDNC":
         assert not corpus_path is None
