@@ -290,18 +290,23 @@ class SpeakerAttributionDataset(Dataset):
         # { alias => normalized name }
         alias_to_speaker = {}
         for _, row in characters_info.iterrows():
-            speaker = tuple(m_tokenizer.tokenize(row["Main Name"], escape=False))
-            alias_to_speaker[speaker] = speaker
+            speaker = row["Main Name"]
+            speaker_key = tuple(m_tokenizer.tokenize(row["Main Name"], escape=False))
+            alias_to_speaker[speaker_key] = speaker
             for alias in eval(row["Aliases"]):
                 alias = tuple(m_tokenizer.tokenize(alias, escape=False))
                 alias_to_speaker[alias] = speaker
 
-        # TODO:
-        # extract mentions from doc_tokens
         longest_alias_len = max([len(alias) for alias in alias_to_speaker.keys()])
         mentions = []
-        visited_patterns = []
-
+        visited_tokens = set()
+        # iterate from largest pattern to smaller ones. Priority is
+        # given to larger patterns, to avoid situations where a
+        # smaller pattern disallows matching a larger one. This can
+        # happen in the case of charaters sharing a family name: in
+        # 'Zoé Traitor', the 'Traitor' part of the name could be
+        # matched to the character 'John Traitor' if John Traitor has
+        # a 'Traitor' alias.
         for pattern_len in range(longest_alias_len, 0, -1):
 
             for pattern_i, pattern in enumerate(windowed(doc_tokens, pattern_len)):
@@ -314,12 +319,9 @@ class SpeakerAttributionDataset(Dataset):
 
                     # check if the current pattern overlaps with a
                     # larger pattern assigned to another speaker. In
-                    # that case, we drop the current pattern: we cant
-                    # have overlapping speaker representations.
-                    if any(
-                        start >= o_start and end <= o_end
-                        for o_start, o_end in visited_patterns
-                    ):
+                    # that case, we drop the current pattern: we
+                    # disallows overlapping speaker representations.
+                    if any(idx in visited_tokens for idx in range(start, end)):
                         continue
 
                     speaker = alias_to_speaker[tuple(pattern)]
@@ -327,24 +329,12 @@ class SpeakerAttributionDataset(Dataset):
                         list(pattern), pattern_i, end, speaker
                     )
                     mentions.append(mention)
-                    visited_patterns.append((start, end))
 
-        # common sense checks
+                    for idx in range(start, end):
+                        visited_tokens.add(idx)
+
+        # common sense check
         assert len(mentions) > 0
-        for mention in mentions:
-            assert not any(
-                mention.start >= om.start and mention.end <= om.end for om in mentions
-            )
-
-        # extract mentions from doc_tokens
-        # mentions = []
-        # for alias, speaker in alias_to_speaker.items():
-        #     alias_tokens = m_tokenizer.tokenize(alias, escape=False)
-        #     coords_lst = find_pattern(doc_tokens, alias_tokens)  # note: expensive
-        #     for start, end in coords_lst:
-        #         mentions.append(
-        #             SpeakerAttributionMention(alias_tokens, start, end, speaker)
-        #         )
 
         # we're done!
         return SpeakerAttributionDocument(doc_tokens, quotes, mentions)
