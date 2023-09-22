@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import Any, List, Literal, Optional, Set, Tuple, Dict, Union
+from typing import Any, List, Literal, Optional, Set, Tuple, Dict, Union, cast
 import glob
 from pathlib import Path
 from xml.etree import ElementTree as ET
@@ -12,7 +12,7 @@ from transformers import BertTokenizerFast
 from tqdm import tqdm
 from sacremoses import MosesTokenizer
 from transformers.tokenization_utils_base import BatchEncoding
-from more_itertools import flatten
+from more_itertools import flatten, windowed
 from grimbert.utils import find_pattern
 
 
@@ -248,7 +248,9 @@ class SpeakerAttributionDataset(Dataset):
                 quote_texts.append(quote_text)
 
         # Init doc_tokens with the tokens from the start of the text to the first quote
-        doc_tokens = m_tokenizer.tokenize(text[: quote_spans[0][0]], escape=False)
+        doc_tokens: List[str] = m_tokenizer.tokenize(
+            text[: quote_spans[0][0]], escape=False
+        )
         quotes = []
 
         # Parse the flattened structure into SpeakerAttributionQuote, keeping
@@ -288,19 +290,51 @@ class SpeakerAttributionDataset(Dataset):
         # { alias => normalized name }
         alias_to_speaker = {}
         for _, row in characters_info.iterrows():
-            alias_to_speaker[row["Main Name"]] = row["Main Name"]
+            speaker = row["Main Name"]
+            speaker_key = tuple(m_tokenizer.tokenize(row["Main Name"], escape=False))
+            alias_to_speaker[speaker_key] = speaker
             for alias in eval(row["Aliases"]):
-                alias_to_speaker[alias] = row["Main Name"]
+                alias = tuple(m_tokenizer.tokenize(alias, escape=False))
+                alias_to_speaker[alias] = speaker
 
-        # extract mentions from doc_tokens
+        longest_alias_len = max([len(alias) for alias in alias_to_speaker.keys()])
         mentions = []
-        for alias, speaker in alias_to_speaker.items():
-            alias_tokens = m_tokenizer.tokenize(alias, escape=False)
-            coords_lst = find_pattern(doc_tokens, alias_tokens)  # note: expensive
-            for start, end in coords_lst:
-                mentions.append(
-                    SpeakerAttributionMention(alias_tokens, start, end, speaker)
-                )
+        visited_tokens = set()
+        # iterate from largest pattern to smaller ones. Priority is
+        # given to larger patterns, to avoid situations where a
+        # smaller pattern disallows matching a larger one. This can
+        # happen in the case of charaters sharing a family name: in
+        # 'Zoé Traitor', the 'Traitor' part of the name could be
+        # matched to the character 'John Traitor' if John Traitor has
+        # a 'Traitor' alias.
+        for pattern_len in range(longest_alias_len, 0, -1):
+
+            for pattern_i, pattern in enumerate(windowed(doc_tokens, pattern_len)):
+                pattern = cast(Tuple[str, ...], pattern)
+
+                if tuple(pattern) in alias_to_speaker:
+
+                    start = pattern_i
+                    end = pattern_i + len(pattern)
+
+                    # check if the current pattern overlaps with a
+                    # larger pattern assigned to another speaker. In
+                    # that case, we drop the current pattern: we
+                    # disallows overlapping speaker representations.
+                    if any(idx in visited_tokens for idx in range(start, end)):
+                        continue
+
+                    speaker = alias_to_speaker[tuple(pattern)]
+                    mention = SpeakerAttributionMention(
+                        list(pattern), pattern_i, end, speaker
+                    )
+                    mentions.append(mention)
+
+                    for idx in range(start, end):
+                        visited_tokens.add(idx)
+
+        # common sense check
+        assert len(mentions) > 0
 
         # we're done!
         return SpeakerAttributionDocument(doc_tokens, quotes, mentions)
