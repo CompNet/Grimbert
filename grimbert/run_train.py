@@ -28,6 +28,8 @@ def config():
     # which corpus to use. Either "muzny" or "PDNC"
     corpus_name: str = "muzny"
     corpus_path = None
+    # additional kwargs, depending on corpus
+    corpus_kwargs: dict = {}
 
     # see :class:`grimbert.model.SpeakerAttributionModelConfig`
     sa_model_config: dict = {"segment_len": 128}
@@ -43,6 +45,7 @@ def main(
     bert_encoder: str,
     corpus_name: Literal["muzny", "PDNC"],
     corpus_path: Optional[str],
+    corpus_kwargs: dict,
     sa_model_config: dict,
     quote_ctx_len: int,
     speaker_repr_nb: int,
@@ -52,19 +55,20 @@ def main(
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     if corpus_name == "muzny":
+        use_agm = corpus_kwargs.get("use_additional_gold_mentions", False)
         train_dataset = SpeakerAttributionDataset.from_muzny_files(
             [f"{ROOT_DIR}/corpus/emma.xml", f"{ROOT_DIR}/corpus/pp.xml"],
             quote_ctx_len,
             speaker_repr_nb,
             tokenizer,
-            use_additional_gold_mentions=False,
+            use_additional_gold_mentions=use_agm,
         )
         eval_dataset = SpeakerAttributionDataset.from_muzny_files(
             [f"{ROOT_DIR}/corpus/steppe.xml"],
             quote_ctx_len,
             speaker_repr_nb,
             tokenizer,
-            use_additional_gold_mentions=False,
+            use_additional_gold_mentions=use_agm,
         )
     elif corpus_name == "PDNC":
         assert not corpus_path is None
