@@ -2,6 +2,7 @@ from __future__ import annotations
 from typing import Any, List, Literal, Optional, Set, Tuple, Dict, Union, cast
 import glob
 from pathlib import Path
+from typing_extensions import TypeAlias
 from xml.etree import ElementTree as ET
 from dataclasses import dataclass
 import pandas as pd
@@ -62,6 +63,12 @@ class SpeakerAttributionQuote:
     start: int
     end: int
     speaker: str
+
+    def ctx_bounds(self, quote_ctx_len: int) -> Tuple[int, int]:
+        quote_outer_ctx_len = (quote_ctx_len - (self.end - self.start)) // 2
+        quote_ctx_start = max(self.start - quote_outer_ctx_len, 0)
+        quote_ctx_end = self.end + quote_outer_ctx_len
+        return (quote_ctx_start, quote_ctx_end)
 
 
 @dataclass
@@ -134,6 +141,11 @@ class SpeakerAttributionDocument:
         return exs
 
 
+SpeakerAttributionExample: TypeAlias = Tuple[
+    SpeakerAttributionQuote, SpeakerAttributionDocument, str, bool
+]
+
+
 class SpeakerAttributionDataset(Dataset):
     def __init__(
         self,
@@ -141,7 +153,7 @@ class SpeakerAttributionDataset(Dataset):
         quote_ctx_len: int,
         speaker_repr_nb: int,
         tokenizer: BertTokenizerFast,
-        _examples: Optional[list] = None,
+        _examples: Optional[List[List[SpeakerAttributionExample]]] = None,
     ):
         """
         :param quote_ctx_len: total size of the quote context
@@ -167,6 +179,50 @@ class SpeakerAttributionDataset(Dataset):
 
     def __len__(self):
         return len(list(flatten(self.examples)))
+
+    def example_at(self, example_i: int) -> SpeakerAttributionExample:
+        return list(flatten(self.examples))[example_i]
+
+    def pprint_example_at(self, example_i: int):
+        from rich.console import Console
+        from rich.text import Text
+
+        quote, doc, candidate_speaker, label = self.example_at(example_i)
+
+        label_color = "green" if label else "red"
+
+        quote_ctx_start, quote_ctx_end = quote.ctx_bounds(self.quote_ctx_len)
+
+        stylized_tokens: List[Any] = [
+            f"{t} " for t in doc.tokens[quote_ctx_start:quote_ctx_end]
+        ]
+
+        start = quote.start - quote_ctx_start
+        end = quote.end - quote_ctx_start
+        for quote_i in range(start, end):
+            token = stylized_tokens[quote_i]
+            stylized_tokens[quote_i] = (token, "bold magenta")
+
+        speaker_mentions = doc.mentions_in_range(
+            quote,
+            [m for m in doc.mentions if m.speaker == candidate_speaker],
+            self.quote_ctx_len,
+        )
+        for mention in speaker_mentions:
+            start = mention.start - quote_ctx_start
+            end = mention.end - quote_ctx_start
+            for mention_i in range(start, end):
+                token = stylized_tokens[mention_i]
+                if isinstance(token, tuple):
+                    token = token[0]
+                stylized_tokens[mention_i] = (token, f"bold {label_color}")
+
+        text = Text.assemble(*stylized_tokens)
+        console = Console(color_system="standard")
+        console.print(
+            f"candidate speaker: [{label_color}]'{candidate_speaker}'[/{label_color}]"
+        )
+        console.print(text)
 
     def splitted(
         self, ratio: float
@@ -471,15 +527,13 @@ class SpeakerAttributionDataset(Dataset):
 
     def __getitem__(self, index: int) -> BatchEncoding:
 
-        quote, document, speaker, label = list(flatten(self.examples))[index]
+        quote, document, speaker, label = self.example_at(index)
 
         # The whole context used for speaker attribution is of the
         # form [lcontext, quote, rcontext]. The size of lcontext and
         # rcontext depends on the total size allowed for the input,
         # which is self.quote_ctx_len
-        quote_outer_ctx_len = (self.quote_ctx_len - (quote.end - quote.start)) // 2
-        quote_ctx_start = max(quote.start - quote_outer_ctx_len, 0)
-        quote_ctx_end = quote.end + quote_outer_ctx_len
+        quote_ctx_start, quote_ctx_end = quote.ctx_bounds(self.quote_ctx_len)
         batch = self.tokenizer(
             document.tokens[quote_ctx_start:quote_ctx_end],
             is_split_into_words=True,
