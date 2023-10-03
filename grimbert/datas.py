@@ -6,6 +6,7 @@ from typing_extensions import TypeAlias
 from xml.etree import ElementTree as ET
 from dataclasses import dataclass
 import pandas as pd
+import numpy as np
 import torch
 from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import Dataset
@@ -14,7 +15,6 @@ from tqdm import tqdm
 from sacremoses import MosesTokenizer
 from transformers.tokenization_utils_base import BatchEncoding
 from more_itertools import flatten, windowed
-from grimbert.utils import find_pattern
 
 
 class DataCollatorForSpeakerAttribution:
@@ -355,7 +355,8 @@ class SpeakerAttributionDataset(Dataset):
 
         longest_alias_len = max([len(alias) for alias in alias_to_speaker.keys()])
         mentions = []
-        visited_tokens = set()
+        visited_patterns = np.zeros((len(doc_tokens),))
+
         # iterate from largest pattern to smaller ones. Priority is
         # given to larger patterns, to avoid situations where a
         # smaller pattern disallows matching a larger one. This can
@@ -366,7 +367,6 @@ class SpeakerAttributionDataset(Dataset):
         for pattern_len in range(longest_alias_len, 0, -1):
 
             for pattern_i, pattern in enumerate(windowed(doc_tokens, pattern_len)):
-                pattern = cast(Tuple[str, ...], pattern)
 
                 if tuple(pattern) in alias_to_speaker:
 
@@ -375,19 +375,17 @@ class SpeakerAttributionDataset(Dataset):
 
                     # check if the current pattern overlaps with a
                     # larger pattern assigned to another speaker. In
-                    # that case, we drop the current pattern: we
-                    # disallows overlapping speaker representations.
-                    if any(idx in visited_tokens for idx in range(start, end)):
+                    # that case, we drop the current pattern: we cant
+                    # have overlapping speaker representations.
+                    if sum(visited_patterns[start:end]) >= 1:
                         continue
 
                     speaker = alias_to_speaker[tuple(pattern)]
                     mention = SpeakerAttributionMention(
-                        list(pattern), pattern_i, end, speaker
+                        list(pattern), pattern_i, end, speaker  # type: ignore
                     )
                     mentions.append(mention)
-
-                    for idx in range(start, end):
-                        visited_tokens.add(idx)
+                    visited_patterns[start:end] = 1
 
         # common sense check
         assert len(mentions) > 0
