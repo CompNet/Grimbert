@@ -70,4 +70,4 @@ def train_speaker_attribution(
     )
     _ = trainer.train()
 
-    return model
+    return trainer.model
