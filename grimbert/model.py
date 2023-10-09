@@ -1,5 +1,5 @@
 from typing import Optional
-from transformers import PreTrainedModel, PretrainedConfig
+from transformers import PreTrainedModel
 from transformers.models.bert.modeling_bert import BertModel
 from transformers.models.bert.configuration_bert import BertConfig
 from transformers.modeling_outputs import SequenceClassifierOutput
@@ -8,7 +8,7 @@ from grimbert.utils import batch_index_select
 
 
 class SpeakerAttributionModelConfig(BertConfig):
-    def __init__(self, speaker_repr_nb: int = 8, segment_len=128, **kwargs) -> None:
+    def __init__(self, segment_len=512, **kwargs) -> None:
         super().__init__(**kwargs)
         self.segment_len = segment_len
 
