@@ -58,7 +58,7 @@ dataset = SpeakerAttributionDataset(
     ],
     quote_ctx_len=512,
     speaker_repr_nb=4, 
-    tokenizer
+    tokenizer=tokenizer
 )
 
 preds = predict_speaker(dataset, model, tokenizer, batch_size=4)
