@@ -32,7 +32,7 @@ def config():
     corpus_kwargs: dict = {}
 
     # see :class:`grimbert.model.SpeakerAttributionModelConfig`
-    sa_model_config: dict = {"segment_len": 128}
+    sa_model_config: dict = {"segment_len": 512}
 
     quote_ctx_len: int = 256
     speaker_repr_nb: int = 4
