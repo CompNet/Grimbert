@@ -557,6 +557,9 @@ class SpeakerAttributionDataset(Dataset):
 
             bpos = batch.word_to_tokens(pos)
             if bpos is None:
+                if clip:
+                    print("[warning] quote is too big for batch")
+                    return 0 if side == "start" else quote_ctx_end - quote_ctx_start - 1
                 return None
             else:
                 return bpos.start if side == "start" else bpos.end - 1
