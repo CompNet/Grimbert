@@ -11,6 +11,7 @@ import torch
 from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import Dataset
 from transformers import BertTokenizerFast
+from transformers.utils import logging as transformers_logging
 from tqdm import tqdm
 from sacremoses import MosesTokenizer
 from transformers.tokenization_utils_base import BatchEncoding
@@ -532,12 +533,19 @@ class SpeakerAttributionDataset(Dataset):
         # rcontext depends on the total size allowed for the input,
         # which is self.quote_ctx_len
         quote_ctx_start, quote_ctx_end = quote.ctx_bounds(self.quote_ctx_len)
+        # NOTE: we disable tokenizer warning to avoid a length
+        # ----  warning. Usually, sequences should be truncated to a max
+        #       length (512 for BERT). However, in our case, the sequence is
+        #       later cut into segments of configurable size, so this does
+        #       not apply
+        transformers_logging.set_verbosity_error()
         batch = self.tokenizer(
             document.tokens[quote_ctx_start:quote_ctx_end],
             is_split_into_words=True,
             truncation=False,
             return_tensors="pt",
         )
+        transformers_logging.set_verbosity_info()
 
         for key in batch.keys():
             batch[key] = batch[key][0]
