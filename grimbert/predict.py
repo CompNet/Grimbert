@@ -20,6 +20,7 @@ from grimbert.utils import find_pattern
 class SpeakerPrediction:
     predicted_speaker: Optional[str]
     score: float
+    quote: SpeakerAttributionQuote
 
 
 def predict_speaker(
@@ -41,7 +42,7 @@ def predict_speaker(
     dataloader = DataLoader(dataset, batch_size, collate_fn=data_collator)
 
     preds = [
-        [SpeakerPrediction(None, 0.0) for _ in document.quotes]
+        [SpeakerPrediction(None, 0.0, quote) for quote in document.quotes]
         for document in dataset.documents
     ]
 
@@ -67,6 +68,7 @@ def predict_speaker(
                 if prev_best_score < score:
                     preds[doc_i][quote_i].predicted_speaker = batch["speaker"][i]
                     preds[doc_i][quote_i].score = score
+                    preds[doc_i][quote_i].quote.speaker = batch["speaker"][i]
 
     return preds
 
