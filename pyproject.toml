@@ -8,7 +8,7 @@ readme = "README.md"
 license = { text = "GPL-3.0-only" }
 dependencies = [
     "transformers>=4.56.1",
-    "torch>=2.7.0",
+    "torch>=2.7.1",
     "more-itertools>=10.7",
     "accelerate>=1.10.1",
     "sacremoses>=0.1.1",
@@ -23,17 +23,39 @@ dev = ["pytest>=7.4"]
 
 [project.optional-dependencies]
 cpu = [
-  "torch>=2.7.0",
+  "torch>=2.7.1",
+]
+rocm64 = [
+  "torch>=2.7.1",
+  "pytorch-triton-rocm>=3.1.0", 
+]
+
+[tool.uv]
+conflicts = [
+  [
+    { extra = "cpu" },
+    { extra = "rocm64" },
+  ],
 ]
 
 [tool.uv.sources]
 torch = [
-  { index = "pytorch-cpu", extra = "cpu" }
+  { index = "pytorch-cpu", extra = "cpu" },
+  { index = "pytorch-rocm64", extra = "rocm64" },
 ]
+pytorch-triton-rocm = [
+  { index = "pytorch-rocm64", extra = "rocm64" },
+]
+
 
 [[tool.uv.index]]
 name = "pytorch-cpu"
 url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-rocm64"
+url = "https://download.pytorch.org/whl/rocm6.4"
 explicit = true
 
 [build-system]
