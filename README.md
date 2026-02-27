@@ -5,6 +5,35 @@ Speaker attribution in novels. Based on the older [bert-quote-attribution](https
 
 # Documentation
 
+The high level API is pretty simple to use:
+
+```python
+from grimbert.model import SpeakerAttributionModel
+from transformers import BertTokenizerFast
+from grimbert.predict import predict_speaker_simple
+
+
+model = SpeakerAttributionModel.from_pretrained(
+	"compnet-renard/spanbert-base-cased-literary-speaker-attribution"
+)
+tokenizer = BertTokenizerFast.from_pretrained(
+	"compnet-renard/spanbert-base-cased-literary-speaker-attribution"
+)
+
+speakers = predict_speaker_simple(
+    '"This is horrible", John said to Max', # input text
+    [{"John"}, {"Max"}],                    # speaker candidates
+    model,
+    tokenizer
+)
+print(speakers)
+```
+
+
+## Low-level API
+
+There is a more difficult to use lower level prediction API if necessary:
+
 ```python
 from grimbert.model import SpeakerAttributionModel
 from grimbert.predict import predict_speaker
